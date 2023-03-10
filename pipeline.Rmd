@@ -1,0 +1,217 @@
+---
+output: 
+  pdf_document: 
+    keep_tex: yes
+    fig_caption: yes
+title: "STATS 4850G/9850B: Advanced Data Analysis"
+subtitle: "Assignment-2 Submission"
+geometry: margin=1in
+fontsize: 11pt
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+
+```{r, echo = FALSE}
+## Set default options
+knitr::opts_chunk$set(cache = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      fig.width = 8,
+                      fig.height =3,
+                      fig.aling = "center",
+                      out.extra = "")
+```
+
+# Load Libraries
+```{r include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(tidyr)
+library(psych)
+```
+
+# Project Pipeline
+## Data Loading and Understanding
+```{r}
+hdp_data = read.csv("hdp.csv")
+str(hdp_data)
+```
+
+```{r}
+# Identify missing values
+sum(is.na(hdp_data))
+```
+
+No missing values found in the dataset.
+
+## Preprocessing
+```{r}
+hdp_data$cat_los <- as.factor(cut(hdp_data$LengthofStay, breaks = c(0, 4, 7, 10), labels = c("1 to 4 days", "4 to 6 days", "7 to 10 days")))
+
+# hdp_data$cat_los <- as.factor(cut(hdp_data$LengthofStay, breaks = c(0, 5, 10), labels = c("1 to 5 days", "6 to 10 days")))
+
+# hdp_data$pain <- as.factor(hdp_data$pain)
+# hdp_data$wound <- as.factor(hdp_data$wound)
+# hdp_data$mobility <- as.factor(hdp_data$mobility)
+# hdp_data$ntumors <- as.factor(hdp_data$ntumors)
+# hdp_data$nmorphine <- as.factor(hdp_data$nmorphine)
+# hdp_data$remission <- as.factor(hdp_data$remission)
+hdp_data$Married <- as.factor(hdp_data$Married)
+hdp_data$FamilyHx <- as.factor(hdp_data$FamilyHx)
+hdp_data$SmokingHx <- as.factor(hdp_data$SmokingHx)
+hdp_data$Sex <- as.factor(hdp_data$Sex)
+hdp_data$CancerStage <- as.factor(hdp_data$CancerStage)
+hdp_data$School <- as.factor(hdp_data$School)
+
+numeric_col = unlist(lapply(hdp_data, is.numeric))
+
+cat("Numerical Columns within dataset: ", colnames(hdp_data[, numeric_col]),"\n")
+
+cat("Categorical Columns within dataset: ", colnames(hdp_data[, !numeric_col]))
+
+describe(hdp_data)
+
+```
+
+```{r fig.height=14, fig.width=14, warning=FALSE}
+upper_panel<-function(x, y){
+    points(x,y, pch=19, col=c("darkblue", "darkorange", "red")[hdp_data$cat_los])
+}
+
+lower_panel <- function(x, y){
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- round(cor(x, y), digits=2)
+    txt <- paste0("R = ", r)
+    text(0.5, 0.5, txt)
+}
+
+num_hdp_data = hdp_data[,numeric_col]
+num_hdp_data = cbind(num_hdp_data, cat_los=hdp_data$cat_los)
+
+
+pairs(num_hdp_data[c(1:6)],
+      upper.panel = upper_panel,
+      lower.panel = lower_panel
+      )
+pairs(num_hdp_data[c(7:12)],
+      upper.panel = upper_panel,
+      lower.panel = lower_panel
+      )
+pairs(num_hdp_data[c(13:18)],
+      upper.panel = upper_panel,
+      lower.panel = lower_panel
+      )
+pairs(num_hdp_data[c(19:21)],
+      upper.panel = upper_panel,
+      lower.panel = lower_panel
+      )
+```
+
+```{r fig.width=12, warning=FALSE}
+# Distriubtions Analysis
+ggplot(gather(hdp_data[,!numeric_col], cols, value), aes(x = value)) + 
+       geom_histogram(stat="count") + facet_wrap(.~cols, scales="free", nrow=2)
+
+ggplot(gather(num_hdp_data[,-c(22)], cols, value), aes(x = value)) + 
+  geom_histogram() +
+  facet_wrap(.~cols, scales="free", nrow=5)
+```
+
+```{r fig.width=10, warning=FALSE}
+ggplot(aes(x=LengthofStay), data=hdp_data)+
+  geom_histogram(binwidth=0.5)+ 
+  scale_x_continuous(breaks = seq(0, 10, 1))
+
+ggplot(aes(x=cat_los), data=hdp_data)+
+  geom_histogram(stat="count")
+
+# Demographic data plots - Age, Married, FamilyHx, SmokingHx, Sex
+temp_ind = 1:nrow(hdp_data)
+
+ggplot(aes(x=cat_los, y=Age), data=hdp_data)+
+  geom_boxplot()
+
+# 2-D and 3-D plots
+ggplot(aes(x=cat_los, y=temp_ind), data=hdp_data)+
+  geom_point(alpha=0.5, position="jitter")+
+  facet_wrap(vars(Sex))
+
+ggplot(aes(x=cat_los), data=hdp_data)+
+  geom_histogram(stat="count")+
+  facet_wrap(vars(FamilyHx), labeller = labeller(FamilyHx = 
+    c("no" = "Not present in Family",
+      "yes" = "Present in Family")
+  ))
+
+
+ggplot(aes(x=cat_los), data=hdp_data)+
+  # geom_point(position="jitter", alpha=0.5)+
+  geom_histogram(stat="count")+
+  facet_wrap(vars(Married), labeller = labeller(Married = 
+    c("0" = "0: Not Married",
+      "1" = "1: Married")
+  ))
+
+ggplot(aes(x=cat_los), data=hdp_data)+
+  geom_histogram(stat="count")+
+  facet_wrap(vars(Married), labeller = labeller(Married = 
+    c("0" = "0: Not Married",
+      "1" = "1: Married")
+  ))
+
+ggplot(aes(x=cat_los ,fill=Sex, color=Sex), data=hdp_data)+
+  geom_histogram(stat = "count")+
+  facet_wrap(vars(SmokingHx), labeller = labeller(SmokingHx = 
+    c("current" = "Currently a Smoker",
+      "former" = "Used to Smoke",
+      "never" = "Never Smoked")
+  ))
+
+ggplot(aes(x=cat_los, y=Age, shape=Sex ,fill=FamilyHx, color=FamilyHx), data=hdp_data)+
+  geom_point(position = "jitter")+
+  facet_wrap(vars(SmokingHx), labeller = labeller(SmokingHx = 
+    c("current" = "Currently a Smoker",
+      "former" = "Used to Smoke",
+      "never" = "Never Smoked")
+  ))
+
+# Clinical Parameters
+
+ggplot(aes(x=cat_los, y=tumorsize, fill=Sex, color=Sex), data=hdp_data)+
+  geom_point(position = "jitter")+
+  facet_wrap(vars(SmokingHx), labeller = labeller(SmokingHx = 
+    c("current" = "Currently a Smoker",
+      "former" = "Used to Smoke",
+      "never" = "Never Smoked")
+  ))
+
+ggplot(aes(x=cat_los, y=pain), data=hdp_data)+
+  geom_point(position = "jitter")
+
+ggplot(aes(x=cat_los, y=wound), data=hdp_data)+
+  geom_point(position = "jitter")
+
+ggplot(aes(x=cat_los, y=mobility), data=hdp_data)+
+  geom_point(position = "jitter")
+
+ggplot(aes(x=cat_los, y=ntumors), data=hdp_data)+
+  geom_point(position = "jitter")
+
+ggplot(aes(x=cat_los, y=ntumors), data=hdp_data)+
+  geom_point(position = "jitter")
+  
+ggplot(aes(x=cat_los, y=tumorsize, fill=Sex, color=Sex), data=hdp_data)+
+  geom_point(position = "jitter")+
+  facet_wrap(vars(SmokingHx), labeller = labeller(SmokingHx = 
+    c("current" = "Currently a Smoker",
+      "former" = "Used to Smoke",
+      "never" = "Never Smoked")
+  ))
+
+# HDP Parameters
+
+```
