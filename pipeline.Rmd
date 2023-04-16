@@ -4,7 +4,7 @@ output:
     keep_tex: yes
     fig_caption: yes
 title: "STATS 4850G/9850B: Advanced Data Analysis"
-subtitle: "Assignment-2 Submission"
+subtitle: "Final project"
 geometry: margin=1in
 fontsize: 11pt
 editor_options: 
@@ -24,34 +24,49 @@ knitr::opts_chunk$set(cache = FALSE,
                       out.extra = "")
 ```
 
-# Load Libraries
 ```{r include=FALSE}
 library(dplyr)
 library(ggplot2)
 library(gridExtra)
 library(tidyr)
 library(psych)
+library(lme4)
+library(RLRsim)
+library(reshape2)
+library(broom)
 ```
 
 # Project Pipeline
 ## Data Loading and Understanding
 ```{r}
-hdp_data = read.csv("hdp.csv")
-str(hdp_data)
+data = read.csv("hdp.csv")
+str(data)
 ```
+## Data Cleaning and Preprocessing
 
 ```{r}
 # Identify missing values
-sum(is.na(hdp_data))
+sum(is.na(data))
 ```
 
 No missing values found in the dataset.
 
-## Preprocessing
 ```{r}
-hdp_data$cat_los <- as.factor(cut(hdp_data$LengthofStay, breaks = c(0, 4, 7, 10), labels = c("1 to 4 days", "4 to 6 days", "7 to 10 days")))
+ggplot(aes(x=LengthofStay), data=data)+
+  geom_histogram(binwidth=0.5)+ 
+  scale_x_continuous(breaks = seq(0, 10, 1))
 
-# hdp_data$cat_los <- as.factor(cut(hdp_data$LengthofStay, breaks = c(0, 5, 10), labels = c("1 to 5 days", "6 to 10 days")))
+# We convert the length of stay in "longStay" which has value 1 if the stay is longer than 5 days.
+data$longStay <- ifelse(data$LengthofStay>5,1,0)
+
+# Remove Length of Stay variable
+hdp_data = data[-c(16)]
+str(hdp_data)
+# hdp_data$longStay <- as.factor(cut(hdp_data$LengthofStay, breaks = c(0, 5, 10), labels = c("less_than_5_days", "more_than_5_days")))
+```
+
+```{r}
+# hdp_data$longStay <- as.factor(cut(hdp_data$LengthofStay, breaks = c(0, 5, 10), labels = c("1 to 5 days", "6 to 10 days")))
 
 # hdp_data$pain <- as.factor(hdp_data$pain)
 # hdp_data$wound <- as.factor(hdp_data$wound)
@@ -59,12 +74,15 @@ hdp_data$cat_los <- as.factor(cut(hdp_data$LengthofStay, breaks = c(0, 4, 7, 10)
 # hdp_data$ntumors <- as.factor(hdp_data$ntumors)
 # hdp_data$nmorphine <- as.factor(hdp_data$nmorphine)
 # hdp_data$remission <- as.factor(hdp_data$remission)
+
 hdp_data$Married <- as.factor(hdp_data$Married)
 hdp_data$FamilyHx <- as.factor(hdp_data$FamilyHx)
 hdp_data$SmokingHx <- as.factor(hdp_data$SmokingHx)
 hdp_data$Sex <- as.factor(hdp_data$Sex)
 hdp_data$CancerStage <- as.factor(hdp_data$CancerStage)
 hdp_data$School <- as.factor(hdp_data$School)
+hdp_data$longStay <- as.factor(hdp_data$longStay)
+hdp_data$remission <- as.factor(hdp_data$remission)
 
 numeric_col = unlist(lapply(hdp_data, is.numeric))
 
@@ -74,11 +92,71 @@ cat("Categorical Columns within dataset: ", colnames(hdp_data[, !numeric_col]))
 
 describe(hdp_data)
 
+num_hdp_data = hdp_data[,numeric_col]
+
+ggplot(aes(x=longStay), data=hdp_data)+
+  geom_histogram(stat="count")
+```
+## Exploratory Data Analysis
+
+```{r fig.width=12, warning=FALSE}
+# Distributions Analysis
+gg <- 
+  ggplot(gather(hdp_data[,!numeric_col], cols, value), aes(x = value)) + 
+       geom_histogram(stat="count") + facet_wrap(.~cols, scales="free", nrow=2)
+
+ggsave(
+  file.path("images", "cat_distribution.png"),
+  plot = gg,
+  width = 12, 
+  height = 8, 
+  units = "in",
+  dpi = 200
+)
+
+gg
+
+gg <- 
+  ggplot(gather(num_hdp_data[,-c(22)], cols, value), aes(x = value)) + 
+  geom_histogram() +
+  facet_wrap(.~cols, scales="free", nrow=5)
+
+ggsave(
+  file.path("images", "num_distribution.png"),
+  plot = gg,
+  width = 12, 
+  height = 8, 
+  units = "in",
+  dpi = 200
+)
+
+gg
+```
+
+```{r}
+ggplot(gather(num_hdp_data[,c(2, 13, 14)], cols, value), aes(x = value))+
+  geom_histogram(colour="black", fill="white")+ 
+  facet_wrap(.~cols, scales="free", nrow=2)
+
+ggplot(gather(num_hdp_data[,c(2, 13, 14)], cols, value), aes(x = log(value))) + 
+       geom_histogram(colour="black", fill="white") + facet_wrap(.~cols, scales="free", nrow=2)
+```
+
+```{r fig.height=6, fig.width=14}
+ggplot(gather(num_hdp_data, cols, value), aes(x = value)) + 
+       geom_boxplot() + facet_wrap(.~cols, scales="free", nrow=6)
+```
+
+```{r fig.height=12, fig.width=12}
+tmp_df <- cbind(num_hdp_data, longStay=hdp_data$longStay)
+tmp <- melt(tmp_df, id.vars="longStay")
+ggplot(tmp, aes(x = longStay, y=value)) + geom_jitter(alpha=0.1) +
+       geom_violin(alpha=0.75) + facet_wrap(variable ~ ., scales="free", nrow=6)
 ```
 
 ```{r fig.height=14, fig.width=14, warning=FALSE}
 upper_panel<-function(x, y){
-    points(x,y, pch=19, col=c("darkblue", "darkorange", "red")[hdp_data$cat_los])
+    points(x,y, pch=19)
 }
 
 lower_panel <- function(x, y){
@@ -89,66 +167,66 @@ lower_panel <- function(x, y){
     text(0.5, 0.5, txt)
 }
 
-num_hdp_data = hdp_data[,numeric_col]
-num_hdp_data = cbind(num_hdp_data, cat_los=hdp_data$cat_los)
-
-
-pairs(num_hdp_data[c(1:6)],
+pairs(num_hdp_data,
       upper.panel = upper_panel,
-      lower.panel = lower_panel
-      )
-pairs(num_hdp_data[c(7:12)],
-      upper.panel = upper_panel,
-      lower.panel = lower_panel
-      )
-pairs(num_hdp_data[c(13:18)],
-      upper.panel = upper_panel,
-      lower.panel = lower_panel
-      )
-pairs(num_hdp_data[c(19:21)],
-      upper.panel = upper_panel,
-      lower.panel = lower_panel
-      )
-```
-
-```{r fig.width=12, warning=FALSE}
-# Distriubtions Analysis
-ggplot(gather(hdp_data[,!numeric_col], cols, value), aes(x = value)) + 
-       geom_histogram(stat="count") + facet_wrap(.~cols, scales="free", nrow=2)
-
-ggplot(gather(num_hdp_data[,-c(22)], cols, value), aes(x = value)) + 
-  geom_histogram() +
-  facet_wrap(.~cols, scales="free", nrow=5)
+      lower.panel = lower_panel)
 ```
 
 ```{r fig.width=10, warning=FALSE}
-ggplot(aes(x=LengthofStay), data=hdp_data)+
-  geom_histogram(binwidth=0.5)+ 
-  scale_x_continuous(breaks = seq(0, 10, 1))
-
-ggplot(aes(x=cat_los), data=hdp_data)+
-  geom_histogram(stat="count")
-
 # Demographic data plots - Age, Married, FamilyHx, SmokingHx, Sex
-temp_ind = 1:nrow(hdp_data)
 
-ggplot(aes(x=cat_los, y=Age), data=hdp_data)+
-  geom_boxplot()
+ggplot(aes(x=tumorsize, y=co2), data=hdp_data)+
+  geom_point()+
+  facet_wrap(vars(hdp_data$longStay))
+
+ggplot(aes(x=pain, y=IL6), data=hdp_data)+
+  geom_point()+
+  facet_wrap(vars(hdp_data$longStay))
+
+ggplot(aes(x=lungcapacity, y=Age), data=hdp_data)+
+  geom_point()+
+  facet_wrap(vars(hdp_data$longStay))
+
+ggplot(aes(x=lungcapacity, y=WBC,), data=hdp_data)+
+  geom_point()+
+  facet_wrap(vars(hdp_data$longStay))
+
+ggplot(aes(x=Age, y=longStay), data=hdp_data)+
+  geom_point()+
+  geom_jitter()
+
+ggplot(aes(x=longStay, y=pain), data=hdp_data)+
+  geom_point()+
+  geom_jitter()
+
+ggplot(aes(x=longStay, y=wound), data=hdp_data)+
+  geom_point(position = "jitter")
+
+ggplot(aes(x=longStay, y=mobility), data=hdp_data)+
+  geom_point(position = "jitter")
+
+ggplot(aes(x=longStay, y=ntumors), data=hdp_data)+
+  geom_point(position = "jitter")
 
 # 2-D and 3-D plots
-ggplot(aes(x=cat_los, y=temp_ind), data=hdp_data)+
+temp_ind = 1:nrow(hdp_data)
+
+ggplot(aes(x=longStay, y=temp_ind), data=hdp_data)+
   geom_point(alpha=0.5, position="jitter")+
   facet_wrap(vars(Sex))
 
-ggplot(aes(x=cat_los), data=hdp_data)+
+ggplot(aes(x=longStay, y=WBC), data=hdp_data)+
+  geom_point(alpha=0.5, position="jitter")+
+  facet_wrap(vars(Sex))
+
+ggplot(aes(x=longStay), data=hdp_data)+
   geom_histogram(stat="count")+
   facet_wrap(vars(FamilyHx), labeller = labeller(FamilyHx = 
     c("no" = "Not present in Family",
       "yes" = "Present in Family")
   ))
 
-
-ggplot(aes(x=cat_los), data=hdp_data)+
+ggplot(aes(x=longStay), data=hdp_data)+
   # geom_point(position="jitter", alpha=0.5)+
   geom_histogram(stat="count")+
   facet_wrap(vars(Married), labeller = labeller(Married = 
@@ -156,14 +234,14 @@ ggplot(aes(x=cat_los), data=hdp_data)+
       "1" = "1: Married")
   ))
 
-ggplot(aes(x=cat_los), data=hdp_data)+
+ggplot(aes(x=longStay), data=hdp_data)+
   geom_histogram(stat="count")+
   facet_wrap(vars(Married), labeller = labeller(Married = 
     c("0" = "0: Not Married",
       "1" = "1: Married")
   ))
 
-ggplot(aes(x=cat_los ,fill=Sex, color=Sex), data=hdp_data)+
+ggplot(aes(x=longStay ,fill=Sex, color=Sex), data=hdp_data)+
   geom_histogram(stat = "count")+
   facet_wrap(vars(SmokingHx), labeller = labeller(SmokingHx = 
     c("current" = "Currently a Smoker",
@@ -171,7 +249,7 @@ ggplot(aes(x=cat_los ,fill=Sex, color=Sex), data=hdp_data)+
       "never" = "Never Smoked")
   ))
 
-ggplot(aes(x=cat_los, y=Age, shape=Sex ,fill=FamilyHx, color=FamilyHx), data=hdp_data)+
+ggplot(aes(x=longStay, y=Age, shape=Sex ,fill=FamilyHx, color=FamilyHx), data=hdp_data)+
   geom_point(position = "jitter")+
   facet_wrap(vars(SmokingHx), labeller = labeller(SmokingHx = 
     c("current" = "Currently a Smoker",
@@ -181,30 +259,15 @@ ggplot(aes(x=cat_los, y=Age, shape=Sex ,fill=FamilyHx, color=FamilyHx), data=hdp
 
 # Clinical Parameters
 
-ggplot(aes(x=cat_los, y=tumorsize, fill=Sex, color=Sex), data=hdp_data)+
+ggplot(aes(x=longStay, y=tumorsize, fill=Sex, color=Sex), data=hdp_data)+
   geom_point(position = "jitter")+
   facet_wrap(vars(SmokingHx), labeller = labeller(SmokingHx = 
     c("current" = "Currently a Smoker",
       "former" = "Used to Smoke",
       "never" = "Never Smoked")
   ))
-
-ggplot(aes(x=cat_los, y=pain), data=hdp_data)+
-  geom_point(position = "jitter")
-
-ggplot(aes(x=cat_los, y=wound), data=hdp_data)+
-  geom_point(position = "jitter")
-
-ggplot(aes(x=cat_los, y=mobility), data=hdp_data)+
-  geom_point(position = "jitter")
-
-ggplot(aes(x=cat_los, y=ntumors), data=hdp_data)+
-  geom_point(position = "jitter")
-
-ggplot(aes(x=cat_los, y=ntumors), data=hdp_data)+
-  geom_point(position = "jitter")
   
-ggplot(aes(x=cat_los, y=tumorsize, fill=Sex, color=Sex), data=hdp_data)+
+ggplot(aes(x=longStay, y=tumorsize, fill=Sex, color=Sex), data=hdp_data)+
   geom_point(position = "jitter")+
   facet_wrap(vars(SmokingHx), labeller = labeller(SmokingHx = 
     c("current" = "Currently a Smoker",
@@ -212,6 +275,122 @@ ggplot(aes(x=cat_los, y=tumorsize, fill=Sex, color=Sex), data=hdp_data)+
       "never" = "Never Smoked")
   ))
 
-# HDP Parameters
+```
 
+```{r}
+# Load required packages
+# library(tidyverse)
+# 
+# # Group the data by hospital and doctor
+grouped_data <- hdp_data %>%
+  group_by(HID, DID) %>%
+  summarize(mean_length_of_stay = mean(longStay))
+# 
+# # Compute descriptive statistics for hospitals and doctors
+# hospital_stats <- grouped_data %>%
+#   group_by(HID) %>%
+#   summarize(mean_length_of_stay = mean(longStay),
+#             sd_length_of_stay = sd(longStay))
+# 
+# doctor_stats <- grouped_data %>%
+#   group_by(DID) %>%
+#   summarize(mean_length_of_stay = mean(longStay),
+#             sd_length_of_stay = sd(longStay))
+# 
+# # Create box plots to visualize the differences in length of stay by hospital and doctor
+# ggplot(hdp_data, aes(x = HID, y = longStay)) +
+#   geom_boxplot() +
+#   labs(x = "Hospital", y = "Length of Stay") +
+#   ggtitle("Distribution of Length of Stay by Hospital")
+# 
+# ggplot(hdp_data, aes(x = DID, y = longStay)) +
+#   geom_boxplot() +
+#   labs(x = "Doctor", y = "Length of Stay") +
+#   ggtitle("Distribution of Length of Stay by Doctor")
+# 
+# # Create heatmaps to visualize the relationships between hospitals, doctors, and length of stay
+ggplot(grouped_data, aes(x = HID, y = DID, fill = mean_length_of_stay)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(x = "Hospital", y = "Doctor", fill = "Mean Length of Stay") +
+  ggtitle("Relationship between Hospitals, Doctors, and Length of Stay")
+```
+
+```{r}
+hdp_data %>%
+group_by(HID, Age, Sex) %>%
+summarize(n = n()) %>%
+spread(key = Sex, value = n, fill = 0) %>%
+mutate(total = female + male) %>%
+ggplot(aes(x = HID, y = total, fill = Age)) +
+geom_bar(stat = "identity") +
+labs(title = "Distribution of Demographic Variables by Hospital",
+x = "Hospital",
+y = "Number of Patients",
+fill = "Age Group") +
+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+```{r fig.height=10, fig.width=10}
+# Create a matrix for the heatmap
+heatmap_matrix <- table(hdp_data$HID, hdp_data$DID)
+
+# Define color palette for the heatmap
+heatmap_colors <- colorRampPalette(c("lightblue", "darkblue", "red"))(10)
+
+# Map LongStay variable to color palette
+longstay_color <- heatmap_colors[hdp_data$longStay + 1]
+
+# Create heatmap with color gradient based on 'LongStay' variable
+heatmap(heatmap_matrix, col = heatmap_colors, 
+        main = "Nested Structure Heatmap",
+        xlab = "Doctor", ylab = "Hospital",
+        cex.main = 1.5, cex.axis = 1.2,
+        key.title = "Long Stay",
+        key.xlab = "0: No, 1: Yes",
+        key.text = c("No", "Yes"),
+        key.width = 1, key.height = 0.5,
+        symkey = FALSE,
+        key.title.adj = 0,
+        key.title.cex = 1,
+        key.par = list(mar = c(2, 0, 2, 5)),
+        main.title = TRUE,
+        trace = "none")
+
+# Add 'LongStay' hue to the heatmap
+text(x = col(heatmap_matrix), row = row(heatmap_matrix), labels = "", cex = 0.8)
+text(x = col(heatmap_matrix), row = row(heatmap_matrix), labels = "", cex = 0.8)
+text(x = col(heatmap_matrix), row = row(heatmap_matrix), labels = "", cex = 0.8)
+text(x = col(heatmap_matrix), row = row(heatmap_matrix), labels = longstay_color, cex = 0.8)
+```
+
+```{r}
+plot(longStay ~ remission, data=hdp_data)
+plot(longStay ~ HID, data=hdp_data)
+```
+
+## Modeling
+
+```{r}
+# Split data into training and testing
+set.seed(639245)
+sample <- sample(c(TRUE, FALSE), nrow(hdp_data), replace=TRUE, prob=c(0.7,0.3))
+train  <- hdp_data[sample, ]
+test   <- hdp_data[!sample, ]
+write.
+```
+
+```{r}
+# Patient Variables - tumorsize, co2, pain, wound, mobility, ntumors, remission, lungcapacity, Age, Married,
+#                     FamilyHx, SmokingHx, Sex, CancerStage, WBC, RBC, BMI, IL6, CRP
+
+# Doctor Variables - DID, Experience, School, Lawsuits
+
+# Hospital Variables - HID, Medicaid
+
+mod_nested <- glmer(longStay ~ (1|DID/HID), data = hdp_data, family="binomial")
+summary(mod_nested)
+```
+```{r}
+mod_ <- glm(longStay ~ ., data=hdp_data, family="binomial")
+summary(mod_)
 ```

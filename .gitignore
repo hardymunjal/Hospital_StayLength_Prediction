@@ -42,3 +42,7 @@ vignettes/*.pdf
 # User Folders
 pipeline_files/
 *.pdf
+images/
+*.tex
+*.jpg
+*.png
